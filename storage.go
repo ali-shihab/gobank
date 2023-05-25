@@ -13,6 +13,7 @@ type Storage interface {
 	UpdateAccount(*Account) error
 	GetAccounts() ([]*Account, error)
 	GetAccountByID(int) (*Account, error)
+	GetAccountByNumber(int) (*Account, error)
 }
 
 type PostgressStore struct {
@@ -20,7 +21,7 @@ type PostgressStore struct {
 }
 
 func NewPostgresStore() (*PostgressStore, error) {
-	connStr := "user=postgres dbname=postgres password=gobank sslmode=disable"
+	connStr := "user=postgres dbname=postgres password=gobankpg sslmode=disable"
 	db, err := sql.Open("postgres", connStr)
 	if err != nil {
 		return nil, err
@@ -45,6 +46,7 @@ func (s *PostgressStore) CreateAccountTable() error {
 		first_name varchar(50), 
 		last_name varchar(50),
 		number serial,
+		encrypted_password varchar(100),
 		balance serial, 
 		created_at timestamp
 	)`
@@ -55,14 +57,15 @@ func (s *PostgressStore) CreateAccountTable() error {
 
 func (s *PostgressStore) CreateAccount(acc *Account) error {
 	query := `insert into account
-	(first_name, last_name, number, balance, created_at)
-	values ($1, $2, $3, $4, $5)`
+	(first_name, last_name, number, encrypted_password, balance, created_at)
+	values ($1, $2, $3, $4, $5, $6)`
 
 	resp, err := s.db.Query(
 		query,
 		acc.FirstName,
 		acc.LastName,
 		acc.Number,
+		acc.EncryptedPassword,
 		acc.Balance,
 		acc.CreatedAt)
 
@@ -78,6 +81,19 @@ func (s *PostgressStore) CreateAccount(acc *Account) error {
 func (s *PostgressStore) DeleteAccount(id int) error {
 	_, err := s.db.Query(`delete from account where id = $1`, id)
 	return err
+}
+
+func (s *PostgressStore) GetAccountByNumber(number int) (*Account, error) {
+	rows, err := s.db.Query("SELECT * FROM accounts WHERE number = $1", number)
+	if err != nil {
+		return nil, err
+	}
+
+	for rows.Next() {
+		return scanIntoAccount(rows)
+	}
+
+	return nil, fmt.Errorf("account with number [%d] not found", number)
 }
 
 func (s *PostgressStore) UpdateAccount(*Account) error {
@@ -120,6 +136,7 @@ func scanIntoAccount(rows *sql.Rows) (*Account, error) {
 		&acc.FirstName,
 		&acc.LastName,
 		&acc.Number,
+		&acc.EncryptedPassword,
 		&acc.Balance,
 		&acc.CreatedAt)
 
